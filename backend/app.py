@@ -20,15 +20,23 @@ def after_request(response):
     return response
 
 # Configuration
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fiscal_control.db'
+IS_VERCEL = "VERCEL" in os.environ
+
+if IS_VERCEL:
+    app.config['UPLOAD_FOLDER'] = '/tmp/uploads'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/fiscal_control.db'
+else:
+    app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(__file__), 'uploads')
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///fiscal_control.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Ensure folders exist
+if not os.path.exists(app.config['UPLOAD_FOLDER']):
+    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 # Initialize DB
 db.init_app(app)
-
-if not os.path.exists(app.config['UPLOAD_FOLDER']):
-    os.makedirs(app.config['UPLOAD_FOLDER'])
 
 with app.app_context():
     db.create_all()

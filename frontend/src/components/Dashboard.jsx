@@ -9,7 +9,7 @@ export function Dashboard() {
 
     const fetchDashboard = async () => {
         try {
-            const res = await axios.get('http://localhost:5001/api/dashboard');
+            const res = await axios.get('/api/dashboard');
             setData(res.data);
         } catch (error) {
             console.error("Error fetching dashboard:", error);
@@ -24,7 +24,7 @@ export function Dashboard() {
         }
 
         try {
-            await axios.delete(`http://localhost:5001/api/invoices/${id}`);
+            await axios.delete(`/api/invoices/${id}`);
             fetchDashboard(); // Refresh data
         } catch (error) {
             console.error("Error deleting invoice:", error);

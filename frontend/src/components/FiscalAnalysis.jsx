@@ -9,7 +9,7 @@ export function FiscalAnalysis() {
 
     const fetchAnalysis = async () => {
         try {
-            const res = await axios.get('http://localhost:5001/api/analysis');
+            const res = await axios.get('/api/analysis');
             setData(res.data);
         } catch (error) {
             console.error("Error fetching analysis:", error);
