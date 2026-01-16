@@ -156,11 +156,20 @@ export function FiscalAnalysis() {
                 </div>
 
                 <div className="bg-red-50 border border-red-100 p-4 rounded-xl flex flex-col justify-center">
-                    <span className="text-xs font-bold text-red-600 uppercase">Imposto Total Projetado</span>
+                    <span className="text-xs font-bold text-red-600 uppercase">Custo Fiscal Total Estimado</span>
                     <span className="text-2xl font-black text-red-700">
                         R$ {data.total_projected_tax.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </span>
-                    <span className="text-xs text-red-500 mt-1">* Estimativa de ST/DIFAL a recolher</span>
+                    <div className="mt-2 flex flex-col gap-1">
+                        <div className="flex justify-between text-[10px] font-bold text-red-500/80">
+                            <span>DIFAL/ST (COMPRAS):</span>
+                            <span>R$ {data.total_purchase_related_tax.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-bold text-red-500/80">
+                            <span>PROJEÇÃO DAS (VENDAS):</span>
+                            <span>R$ {data.total_sale_related_tax.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -263,9 +272,14 @@ export function FiscalAnalysis() {
 
                                         <div className="flex flex-col items-end text-sm">
                                             <span className="text-gray-500 font-medium tracking-tight">Valor: R$ {item.value.toFixed(2)}</span>
-                                            {item.projected_tax > 0 && (
+                                            {item.projected_purchase_tax > 0 && (
                                                 <span className="font-bold text-red-600">
-                                                    Projeção ST/DIFAL: R$ {item.projected_tax.toFixed(2)}
+                                                    DIFAL/ST Compra: R$ {item.projected_purchase_tax.toFixed(2)}
+                                                </span>
+                                            )}
+                                            {item.projected_sale_tax > 0 && (
+                                                <span className="font-bold text-primary">
+                                                    DAS Estimado p/ Venda: R$ {item.projected_sale_tax.toFixed(2)}
                                                 </span>
                                             )}
                                         </div>

@@ -142,13 +142,36 @@ def get_analysis_data():
                 Product.projected_tax > 0
             )
         )
-        inconsistencies = db.session.execute(stmt).scalars().all()
-        total_projected = db.session.execute(select(func.sum(Product.projected_tax))).scalar() or 0.0
+        config = db.session.execute(select(CompanyConfig)).scalar()
+        effective_rate = calculate_simples_rate(config.rbt12) if config else 0.04
+        
+        # ICMS portion in Simples Nacional (Anexo I) is approx 33.5% of the effective rate
+        icms_parcel_ratio = 0.335
+
+        total_projected_purchase = 0.0
+        total_projected_sale = 0.0
         
         analysis_data = []
         for p in inconsistencies:
             invoice_num = p.invoice.number if p.invoice else "N/A"
             issuer_name = p.invoice.sender_name if p.invoice else "N/A"
+            
+            # 1. Purchase Tax (DIFAL/ST already in DB)
+            purchase_tax = p.projected_tax or 0.0
+            total_projected_purchase += purchase_tax
+
+            # 2. Estimated Sale Tax (DAS)
+            # Assume 30% margin for pharmacy resale
+            estimated_sale_price = (p.total_price or 0.0) * 1.30
+            
+            if p.is_st:
+                # Deduct ICMS portion because it was already paid/retained
+                item_sale_tax = estimated_sale_price * (effective_rate * (1 - icms_parcel_ratio))
+            else:
+                # Pay full Simples rate
+                item_sale_tax = estimated_sale_price * effective_rate
+            
+            total_projected_sale += item_sale_tax
 
             analysis_data.append({
                 'id': p.id,
@@ -165,15 +188,15 @@ def get_analysis_data():
                 'v_ipi': p.v_ipi or 0.0,
                 'v_pis': p.v_pis or 0.0,
                 'v_cofins': p.v_cofins or 0.0,
-                'projected_tax': p.projected_tax or 0.0
+                'projected_purchase_tax': purchase_tax,
+                'projected_sale_tax': item_sale_tax
             })
-
-        config = db.session.execute(select(CompanyConfig)).scalar()
-        effective_rate = calculate_simples_rate(config.rbt12) if config else 0.04
 
         return jsonify({
             'inconsistencies_count': len(analysis_data),
-            'total_projected_tax': total_projected,
+            'total_projected_tax': total_projected_purchase + total_projected_sale,
+            'total_purchase_related_tax': total_projected_purchase,
+            'total_sale_related_tax': total_projected_sale,
             'effective_rate': effective_rate,
             'items': analysis_data
         })
