@@ -142,6 +142,7 @@ def get_analysis_data():
                 Product.projected_tax > 0
             )
         )
+        inconsistencies = db.session.execute(stmt).scalars().all()
         config = db.session.execute(select(CompanyConfig)).scalar()
         effective_rate = calculate_simples_rate(config.rbt12) if config else 0.04
         
