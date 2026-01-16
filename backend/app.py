@@ -14,9 +14,6 @@ CORS(app)
 
 @app.after_request
 def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response
 
 # Configuration
@@ -132,6 +129,61 @@ def get_analysis_data():
         })
     except Exception as e:
         logger.error(f"Analysis error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/search-cest', methods=['POST'])
+def search_missing_cest():
+    try:
+        # Dictionary of common NCM to CEST mappings (sample/demonstration)
+        # In a real scenario, this could be an external API or a larger database
+        NCM_CEST_MAP = {
+            "30049099": "1300200", # Medicamentos
+            "30039099": "1300200", 
+            "30049069": "1300200",
+            "33049910": "2001900", # Dermocosméticos
+            "33049990": "2001900",
+            "34011190": "2000200", # Sabonetes
+            "33051000": "2000300", # Shampoos
+            "33059000": "2000500", # Condicionadores
+            "33061000": "2001100", # Dentifrícios
+        }
+
+        # Find products with missing CEST
+        stmt = select(Product).where(or_(Product.cest == '', Product.cest.is_(None)))
+        products_missing = db.session.execute(stmt).scalars().all()
+        
+        updated_count = 0
+        updates = []
+
+        for p in products_missing:
+            # Try to find CEST by exact NCM
+            if p.ncm in NCM_CEST_MAP:
+                p.cest = NCM_CEST_MAP[p.ncm]
+                # Update alert if CEST was the only problem
+                if "CEST não informado" in (p.tax_alert or ""):
+                    p.tax_alert = p.tax_alert.replace(" | CEST não informado", "").replace("CEST não informado", "").strip()
+                    if not p.tax_alert:
+                        p.tax_alert = None
+                
+                updated_count += 1
+                updates.append({
+                    "id": p.id,
+                    "product": p.name,
+                    "ncm": p.ncm,
+                    "cest": p.cest
+                })
+
+        if updated_count > 0:
+            db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "updated_count": updated_count,
+            "items_updated": updates
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Search CEST error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/invoices/<int:id>', methods=['DELETE'])

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { AlertCircle, CheckCircle2, Info, ArrowRight } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, ArrowRight, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export function FiscalAnalysis() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [searching, setSearching] = useState(false);
 
     const fetchAnalysis = async () => {
         try {
@@ -15,6 +16,22 @@ export function FiscalAnalysis() {
             console.error("Error fetching analysis:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSearchCest = async () => {
+        setSearching(true);
+        try {
+            const res = await axios.post('/api/search-cest');
+            if (res.data.success) {
+                alert(`${res.data.updated_count} códigos CEST encontrados e atualizados!`);
+                fetchAnalysis(); // Refresh data
+            }
+        } catch (error) {
+            console.error("Error searching CEST:", error);
+            alert("Erro ao buscar códigos CEST.");
+        } finally {
+            setSearching(false);
         }
     };
 
@@ -77,8 +94,30 @@ export function FiscalAnalysis() {
             {/* Inconsistencies List */}
             {data.inconsistencies_count > 0 && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="p-6 border-b border-gray-100">
+                    <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <h3 className="text-lg font-semibold text-gray-800">Itens com Alerta</h3>
+                        <button
+                            onClick={handleSearchCest}
+                            disabled={searching}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all",
+                                searching
+                                    ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                                    : "bg-primary text-white hover:bg-primary/90 shadow-sm"
+                            )}
+                        >
+                            {searching ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                                    Buscando CEST...
+                                </>
+                            ) : (
+                                <>
+                                    <Search size={16} />
+                                    Buscar CEST Faltantes
+                                </>
+                            )}
+                        </button>
                     </div>
 
                     <div className="divide-y divide-gray-100">
