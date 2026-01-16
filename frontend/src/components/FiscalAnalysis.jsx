@@ -7,6 +7,9 @@ export function FiscalAnalysis() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [searching, setSearching] = useState(false);
+    const [settings, setSettings] = useState({ rbt12: 180000, effective_rate: 0.04 });
+    const [tempRbt12, setTempRbt12] = useState('180000');
+    const [isSavingSettings, setIsSavingSettings] = useState(false);
 
     const fetchAnalysis = async () => {
         try {
@@ -16,6 +19,31 @@ export function FiscalAnalysis() {
             console.error("Error fetching analysis:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchSettings = async () => {
+        try {
+            const res = await axios.get('/api/settings');
+            setSettings(res.data);
+            setTempRbt12(res.data.rbt12.toString());
+        } catch (error) {
+            console.error("Error fetching settings:", error);
+        }
+    };
+
+    const handleSaveSettings = async () => {
+        setIsSavingSettings(true);
+        try {
+            await axios.post('/api/settings', { rbt12: parseFloat(tempRbt12) });
+            await fetchSettings();
+            await fetchAnalysis(); // Re-calculate analysis with new rate
+            alert("Configurações atualizadas!");
+        } catch (error) {
+            console.error("Error saving settings:", error);
+            alert("Erro ao salvar configurações.");
+        } finally {
+            setIsSavingSettings(false);
         }
     };
 
@@ -37,6 +65,7 @@ export function FiscalAnalysis() {
 
     useEffect(() => {
         fetchAnalysis();
+        fetchSettings();
     }, []);
 
     if (loading) {
@@ -49,6 +78,50 @@ export function FiscalAnalysis() {
 
     return (
         <div className="space-y-6">
+            {/* Simples Nacional Config Card */}
+            <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <Info size={20} />
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-gray-800 text-sm">Configuração Simples Nacional</h4>
+                        <p className="text-xs text-gray-500">Ajuste o faturamento para calcular a alíquota efetiva (Anexo I).</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Faturamento 12m (RBT12)</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-gray-700">R$</span>
+                            <input
+                                type="number"
+                                value={tempRbt12}
+                                onChange={(e) => setTempRbt12(e.target.value)}
+                                className="w-32 px-2 py-1 border border-gray-200 rounded text-sm font-black focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="h-10 w-px bg-gray-100 mx-2" />
+
+                    <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Alíquota Efetiva</span>
+                        <span className="text-lg font-black text-primary">
+                            {(settings.effective_rate * 100).toFixed(2)}%
+                        </span>
+                    </div>
+
+                    <button
+                        onClick={handleSaveSettings}
+                        disabled={isSavingSettings}
+                        className="ml-4 px-4 py-2 bg-gray-800 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    >
+                        {isSavingSettings ? 'Salvando...' : 'Atualizar Base'}
+                    </button>
+                </div>
+            </div>
             {/* Status Summary & Tax Projection Header */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={cn(
@@ -130,6 +203,12 @@ export function FiscalAnalysis() {
                                                 NCM: {item.ncm}
                                             </span>
                                             <span className={cn(
+                                                "text-xs font-bold px-2 py-0.5 rounded",
+                                                item.is_st ? "bg-amber-100 text-amber-600" : "bg-teal-100 text-teal-600"
+                                            )}>
+                                                {item.is_st ? "SUBST. TRIBUTÁRIA (ST)" : "TRIBUTADO INTEGRAL"}
+                                            </span>
+                                            <span className={cn(
                                                 "text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1",
                                                 item.cest === 'NÃO INFORMADO' ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600"
                                             )}>
@@ -161,29 +240,23 @@ export function FiscalAnalysis() {
 
                                         {/* Tax Breakdown Badges */}
                                         <div className="flex flex-wrap md:justify-end gap-1.5 max-w-xs">
+                                            {item.is_st ? (
+                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded flex items-center gap-1">
+                                                    <CheckCircle2 size={10} /> Venda Isenta de ICMS (ST)
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded flex items-center gap-1">
+                                                    <AlertCircle size={10} /> Venda Tributada: {(data.effective_rate * 100).toFixed(2)}%
+                                                </span>
+                                            )}
                                             {item.v_icms > 0 && (
                                                 <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-50 text-blue-600 border border-blue-100 rounded">
-                                                    ICMS: R${item.v_icms.toFixed(2)}
+                                                    ICMS NFe: R${item.v_icms.toFixed(2)}
                                                 </span>
                                             )}
                                             {item.v_st > 0 && (
                                                 <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-50 text-purple-600 border border-purple-100 rounded">
-                                                    ST: R${item.v_st.toFixed(2)}
-                                                </span>
-                                            )}
-                                            {item.v_ipi > 0 && (
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-orange-50 text-orange-600 border border-orange-100 rounded">
-                                                    IPI: R${item.v_ipi.toFixed(2)}
-                                                </span>
-                                            )}
-                                            {item.v_pis > 0 && (
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-teal-50 text-teal-600 border border-teal-100 rounded">
-                                                    PIS: R${item.v_pis.toFixed(2)}
-                                                </span>
-                                            )}
-                                            {item.v_cofins > 0 && (
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded">
-                                                    COFINS: R${item.v_cofins.toFixed(2)}
+                                                    ST NFe: R${item.v_st.toFixed(2)}
                                                 </span>
                                             )}
                                         </div>

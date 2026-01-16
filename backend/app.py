@@ -3,9 +3,9 @@ from flask_cors import CORS
 import os
 import logging
 import traceback
-from models import db, Invoice, Product
+from models import db, Invoice, Product, CompanyConfig
 from services.xml_parser import parse_nfe_xml
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,6 +57,45 @@ with app.app_context():
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "healthy", "service": "Fiscal Control Backend", "vercel": IS_VERCEL})
+
+# Simples Nacional Helper
+def calculate_simples_rate(rbt12):
+    """Calculates effective rate for Anexo I (Commerce)"""
+    if rbt12 <= 180000:
+        return 0.04
+    elif rbt12 <= 360000:
+        return (rbt12 * 0.073 - 5940) / rbt12
+    elif rbt12 <= 720000:
+        return (rbt12 * 0.095 - 13860) / rbt12
+    elif rbt12 <= 1800000:
+        return (rbt12 * 0.107 - 22500) / rbt12
+    elif rbt12 <= 3600000:
+        return (rbt12 * 0.143 - 87300) / rbt12
+    else:
+        # Above sublimite of 3.6M, ICMS is paid outside Simples in many states, 
+        # but for this logic we follow the table up to 4.8M
+        return (rbt12 * 0.19 - 378000) / rbt12
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def handle_settings():
+    config = db.session.execute(select(CompanyConfig)).scalar()
+    if not config:
+        config = CompanyConfig(rbt12=180000.0, annex="Anexo I")
+        db.session.add(config)
+        db.session.commit()
+
+    if request.method == 'POST':
+        data = request.json
+        config.rbt12 = float(data.get('rbt12', config.rbt12))
+        config.annex = data.get('annex', config.annex)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Settings updated"})
+
+    return jsonify({
+        "rbt12": config.rbt12,
+        "annex": config.annex,
+        "effective_rate": calculate_simples_rate(config.rbt12)
+    })
 
 @app.route('/api/dashboard', methods=['GET'])
 def get_dashboard_data():
@@ -117,6 +156,7 @@ def get_analysis_data():
                 'issuer': issuer_name,
                 'product_name': p.name,
                 'ncm': p.ncm,
+                'is_st': p.is_st,
                 'cest': p.cest or 'NÃO INFORMADO',
                 'alert': p.tax_alert or ('CEST Ausente' if not p.cest else 'Alerta Fiscal'),
                 'value': p.total_price or 0.0,
@@ -128,9 +168,13 @@ def get_analysis_data():
                 'projected_tax': p.projected_tax or 0.0
             })
 
+        config = db.session.execute(select(CompanyConfig)).scalar()
+        effective_rate = calculate_simples_rate(config.rbt12) if config else 0.04
+
         return jsonify({
             'inconsistencies_count': len(analysis_data),
             'total_projected_tax': total_projected,
+            'effective_rate': effective_rate,
             'items': analysis_data
         })
     except Exception as e:
@@ -242,12 +286,23 @@ def upload_xml():
                     db.session.add(invoice)
                     db.session.commit()
                     
+                    config = db.session.execute(select(CompanyConfig)).scalar()
+                    rbt12 = config.rbt12 if config else 180000.0
+                    effective_rate = calculate_simples_rate(rbt12)
+
                     for prod_data in data['products']:
+                        ncm = (prod_data['ncm'] or "").replace(".", "")
+                        # NCM ST Classifier (Pharmacy Focus)
+                        # Rule 1: If it has CEST, it is ST
+                        # Rule 2: If NCM starts with common pharmacy ST prefixes
+                        is_st = bool(prod_data['cest']) or any(ncm.startswith(pre) for pre in ["3004", "3003", "3304", "3305", "3306", "3307", "3401", "3006", "9018", "4014"])
+                        
                         product = Product(
                             invoice_id=invoice.id,
                             code=prod_data['code'],
                             name=prod_data['name'],
                             ncm=prod_data['ncm'],
+                            is_st=is_st,
                             cest=prod_data['cest'],
                             cfop=prod_data['cfop'],
                             quantity=float(prod_data['quantity'] or 0),
@@ -260,14 +315,27 @@ def upload_xml():
                             v_cofins=float(prod_data['v_cofins'] or 0),
                         )
                         
+                        # Interstate Analysis
                         if data['emitente']['UF'] != 'SP': 
-                             if float(prod_data['icms_st_value'] or 0) == 0:
-                                 product.projected_tax = product.total_price * 0.12
-                                 product.tax_alert = "Imposto a recolher (Compra Interestadual sem ST)"
+                             if is_st:
+                                 if float(prod_data['icms_st_value'] or 0) == 0:
+                                     # Estimate ST Antecipação (MVA fallback ~ 40%)
+                                     # Formula: (Base * (1+MVA) * 18%) - (Base * 12%)
+                                     mva = 0.40 
+                                     internal_rate = 0.18
+                                     interstate_credit = 0.12 # Assuming standard 12% credit
+                                     product.projected_tax = (product.total_price * (1 + mva) * internal_rate) - (product.total_price * interstate_credit)
+                                     product.tax_alert = "ST a recolher (Compra Interestadual sem retenção)"
+                                 else:
+                                     product.tax_alert = "ST já recolhida na origem"
                              else:
-                                 product.tax_alert = "ST já recolhida na origem"
+                                 # DIFAL for Tributável item
+                                 # Formula: Value * (Internal Rate - Interstate Rate)
+                                 # For Simples Nacional in SP purchasing for resale:
+                                 product.projected_tax = product.total_price * (0.18 - 0.12)
+                                 product.tax_alert = "DIFAL Simples Nacional (Uso/Consumo ou Revenda s/ ST)"
                         
-                        if not product.cest:
+                        if not product.cest and is_st:
                             product.tax_alert = (product.tax_alert or "") + " | CEST não informado"
 
                         db.session.add(product)
