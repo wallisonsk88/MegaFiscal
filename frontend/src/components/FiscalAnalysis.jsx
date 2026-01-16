@@ -130,10 +130,21 @@ export function FiscalAnalysis() {
                                                 NCM: {item.ncm}
                                             </span>
                                             <span className={cn(
-                                                "text-xs font-bold px-2 py-0.5 rounded",
+                                                "text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1",
                                                 item.cest === 'NÃO INFORMADO' ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600"
                                             )}>
                                                 CEST: {item.cest}
+                                                {item.cest === 'NÃO INFORMADO' && (
+                                                    <a
+                                                        href={`https://cosmos.bluesoft.com.br/ncms/${item.ncm.replace(/\D/g, '')}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="hover:text-red-800 underline decoration-dotted"
+                                                        title="Pesquisar CEST no Bluesoft Cosmos"
+                                                    >
+                                                        <Search size={10} />
+                                                    </a>
+                                                )}
                                             </span>
                                         </div>
                                         <h4 className="font-bold text-gray-800 text-base">{item.product_name}</h4>
